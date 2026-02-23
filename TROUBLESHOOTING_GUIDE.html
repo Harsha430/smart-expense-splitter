@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker & Spring Boot Troubleshooting Guide</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-main);
+            background: var(--bg);
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        h1 { font-size: 2.5rem; margin-bottom: 2rem; color: var(--primary); }
+        h2 { font-size: 1.8rem; margin-top: 3rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; }
+        h3 { font-size: 1.4rem; margin-top: 1.5rem; color: var(--text-main); }
+        
+        .card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            margin-bottom: 1.5rem;
+        }
+        
+        code {
+            font-family: 'Fira Code', monospace;
+            background: #f1f5f9;
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #ef4444;
+        }
+        
+        pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+            font-size: 0.95em;
+        }
+
+        .highlight-change {
+            border-left: 4px solid var(--success);
+            padding-left: 1rem;
+            margin: 1rem 0;
+        }
+
+        ul { margin-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+
+        .tip-box {
+            background: #dbeafe;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 2rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🚀 Deployment & Fix Summary</h1>
+    <p>This guide documents the changes made to get the Smart Expense Splitter running with Docker and the fixes applied to resolve the connection and security issues.</p>
+
+    <h2>1. Docker & Build Fixes</h2>
+
+    <div class="card">
+        <h3>Frontend Dockerfile</h3>
+        <p><strong>Issue:</strong> The build failed because the second stage couldn't find the build artifacts.</p>
+        <div class="highlight-change">
+            <p><strong>Fix 1: Added Stage Alias</strong></p>
+            <pre><code>- FROM node:20-alpine
++ FROM node:20-alpine AS builder</code></pre>
+            <p>Naming the stage <code>AS builder</code> allows the final stage to copy files from it specifically.</p>
+        </div>
+        <div class="highlight-change">
+            <p><strong>Fix 2: Corrected Dist Path</strong></p>
+            <pre><code>- COPY --from=builder /app/build /usr/share/nginx/html
++ COPY --from=builder /app/dist /usr/share/nginx/html</code></pre>
+            <p>Vite outputs built files to <code>dist/</code>, not <code>build/</code> (which is used by Create React App).</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Backend Dockerfile</h3>
+        <p><strong>Issue:</strong> The container failed to start with "Unable to access jarfile app.jar".</p>
+        <div class="highlight-change">
+            <pre><code>- COPY --from=builder /app/target/*.jar /app/
++ COPY --from=builder /app/target/*.jar /app/app.jar</code></pre>
+            <p>The <code>ENTRYPOINT</code> expects a file named <code>app.jar</code>. We explicitly renamed the copied jar to match this expectation.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>docker-compose.yml</h3>
+        <p><strong>Issue:</strong> Frontend was unreachable because of incorrect port mapping.</p>
+        <div class="highlight-change">
+            <pre><code>frontend:
+  ports:
+    - "3000:80"  # Changed from "3000:3000"</code></pre>
+            <p>The Nginx container listens on port <strong>80</strong> inside. We map our machine's port 3000 to the container's port 80.</p>
+        </div>
+    </div>
+
+    <h2>2. Security & Code Fixes (403 Forbidden Error)</h2>
+
+    <div class="card">
+        <h3>SecurityConfig.java (Spring Security 6)</h3>
+        <p><strong>Issue:</strong> Requests to <code>/api/auth/register</code> were blocked (403) despite configuration looking correct.</p>
+        <div class="highlight-change">
+            <p><strong>Fix: Used AntPathRequestMatcher</strong></p>
+           <pre><code>// Old (can be ambiguous in newer Spring)
+.requestMatchers("/api/auth/**").permitAll()
+
+// New (Explicit and robust)
+.requestMatchers(new AntPathRequestMatcher("/api/auth/**")).permitAll()</code></pre>
+           <p>This explicitly tells Spring Security to use Ant-style path matching for these endpoints, preventing MVC introspection issues.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>JwtFilter.java</h3>
+        <p><strong>Issue:</strong> Requests might be blocked if the path didn't exactly match string equality.</p>
+        <div class="highlight-change">
+           <pre><code>// Old
+if (path.equals("/api/auth/register")) { ... }
+
+// New
+if (path.contains("/api/auth/") || path.contains("/api/register")) { ... }</code></pre>
+           <p>Using <code>contains()</code> is more forgiving and robust against minor path variations (like trailing slashes).</p>
+        </div>
+    </div>
+
+    <h2>💡 Suggestions for Future Projects</h2>
+
+    <div class="tip-box">
+        <h3>1. Check Your Build Output Directory</h3>
+        <p>Before writing a Dockerfile, run <code>npm run build</code> locally and see if it creates a <code>build/</code> folder or a <code>dist/</code> folder. Adjust your <code>COPY</code> command accordingly.</p>
+    </div>
+
+    <div class="tip-box">
+        <h3>2. Verify Jar Names</h3>
+        <p>In Java Dockerfiles, either rename the jar during the <code>COPY</code> command (as we did) or make your <code>ENTRYPOINT</code> use a wildcard (e.g., <code>java -jar *.jar</code>) to avoid "file not found" errors.</p>
+    </div>
+
+    <div class="tip-box">
+        <h3>3. Container Ports vs Host Ports</h3>
+        <p>Remember: <code>HOST_PORT:CONTAINER_PORT</code>.</p>
+        <ul>
+            <li><strong>Frontend (Nginx)</strong>: Usually listens on 80. Map it like <code>3000:80</code>.</li>
+            <li><strong>Backend (Spring/Node)</strong>: Usually listens on 8080 or 5000. Map it like <code>8080:8080</code>.</li>
+        </ul>
+    </div>
+
+    <div class="tip-box">
+        <h3>4. Spring Security Debugging</h3>
+        <p>If you get a <strong>403 Forbidden</strong> on a public endpoint:</p>
+        <ul>
+            <li>Add logs to your <code>Filter</code> (like <code>JwtFilter</code>) to see if the request is even reaching it.</li>
+            <li>Use <code>AntPathRequestMatcher</code> for explicit public endpoints in `SecurityConfig`.</li>
+            <li>Check if your Controller RequestMapping matches the SecurityConfig exactly.</li>
+        </ul>
+    </div>
+
+</body>
+</html>

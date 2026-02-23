@@ -1,0 +1,48 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: expense_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 00000
+      POSTGRES_DB: expense_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - expense_network
+
+  backend:
+    build: .
+    image: expense-backend
+    container_name: expense-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/expense_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 00000 
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: true
+      SPRING_JPA_GENERATE_DDL: true
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - expense_network 
+  frontend:
+    build: ./frontend
+    image: expense-frontend
+    container_name: expense-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - expense_network   
+volumes:
+  postgres_data:
+networks:
+  expense_network:
+    driver: bridge  
