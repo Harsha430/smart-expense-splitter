@@ -32,6 +32,9 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserDto register(RegisterRequest request) {
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new com.expensetracker.smartsplitter.exception.EmailAlreadyExistsException("Email already registered: " + request.getEmail());
+        }
         request.setPassword(bCryptPasswordEncoder.encode(request.getPassword()));
         User  user = modelMapper.map(request,User.class);
         if (user.getRole() == null) {
